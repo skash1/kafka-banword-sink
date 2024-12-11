@@ -1,0 +1,26 @@
+{
+  "namespace": "io.slurm.clients.user.message",
+  "type": "record",
+  "name": "UserMessage",
+  "fields": [
+    {
+      "name": "sent_at",
+      "type": [
+        "null",
+        {
+            "type": "long",
+            "logicalType": "timestamp-millis"
+        }
+      ],
+      "default": null
+    },
+    {
+      "name": "user_id",
+      "type": "long"
+    },
+    {
+      "name": "message",
+      "type": "string"
+    }
+  ]
+}

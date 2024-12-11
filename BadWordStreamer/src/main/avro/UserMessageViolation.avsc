@@ -1,0 +1,15 @@
+{
+  "namespace": "io.slurm.clients.user.message.violation",
+  "type": "record",
+  "name": "UserMessageViolation",
+  "fields": [
+    {
+      "name": "violated_with",
+      "type": "string"
+    },
+    {
+      "name": "violated_by",
+      "type": "long"
+    }
+  ]
+}

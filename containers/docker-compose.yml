@@ -1,0 +1,222 @@
+version: '3'
+services:
+  conversation-generator:
+    build: ../ConversationGenerator
+    container_name: conversation-generator
+    depends_on:
+      - schema-registry
+
+  bad-word-streamer:
+    build: ../BadWordStreamer
+    container_name: bad-word-streamer
+    depends_on:
+      - conversation-generator
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.4.0
+    hostname: schema-registry
+    depends_on:
+      - kafka-broker-1
+      - kafka-broker-2
+      - kafka-broker-3
+    ports:
+      - "8081:8081"
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_CONNECTION_URL: 'zookeeper:2181'
+      SCHEMA_REGISTRY_LISTENERS: http://schema-registry:8081
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: "kafka-broker-1:9092,kafka-broker-2:9092,kafka-broker-3:9092"
+
+  kafka-broker-1:
+    image: confluentinc/cp-kafka:7.4.0
+    hostname: kafka-broker-1
+    ports:
+      - "19092:19092"
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-broker-1:9092,PLAINTEXT_INTERNAL://localhost:19092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+    healthcheck:
+      test: kafka-cluster.sh cluster-id --bootstrap-server kafka-broker-1:9092 || exit 1
+      interval: 1s
+      timeout: 60s
+      retries: 60
+  kafka-broker-2:
+    image: confluentinc/cp-kafka:7.4.0
+    hostname: kafka-broker-2
+    ports:
+      - "29092:29092"
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 2
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-broker-2:9092,PLAINTEXT_INTERNAL://localhost:29092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+    healthcheck:
+      test: kafka-cluster.sh cluster-id --bootstrap-server kafka-broker-2:9092 || exit 1
+      interval: 1s
+      timeout: 60s
+      retries: 60
+  kafka-broker-3:
+    image: confluentinc/cp-kafka:7.4.0
+    hostname: kafka-broker-3
+    ports:
+      - "39092:39092"
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 3
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-broker-3:9092,PLAINTEXT_INTERNAL://localhost:39092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+    healthcheck:
+      test: kafka-cluster.sh cluster-id --bootstrap-server kafka-broker-3:9092 || exit 1
+      interval: 1s
+      timeout: 60s
+      retries: 60
+
+  akhq:
+    image: tchiotludo/akhq:0.25.1
+    hostname: web-ui
+    ports:
+      - '8086:8086'
+    container_name: web-ui
+    restart: always
+    environment:
+      AKHQ_CONFIGURATION: |
+        akhq:
+          connections:
+            kafka-cluster:
+              properties:
+                bootstrap.servers: "kafka-broker-1:9092,kafka-broker-2:9092,kafka-broker-3:9092"
+              schema-registry:
+                url: http://schema-registry:8081
+        micronaut:
+          server:
+            port: "8086"
+
+  kafka-connect:
+    image: confluentinc/cp-kafka-connect:7.4.0
+    restart: always
+    container_name: kafka-connect
+    hostname:  kafka-connect
+    ports:
+      - '8083:8083'
+    environment:
+      # JVM Tune
+      KAFKA_HEAP_OPTS: "-XX:MetaspaceSize=96m -XX:+UseG1GC -XX:MaxGCPauseMillis=20 -XX:InitiatingHeapOccupancyPercent=35 -XX:G1HeapRegionSize=16M -XX:MinMetaspaceFreeRatio=50 -XX:MaxMetaspaceFreeRatio=80"
+      CONNECT_LOG4J_APPENDER_STDOUT_LAYOUT_CONVERSIONPATTERN: "[%d] %p %X{connector.context}%m (%c:%L)%n"
+      CONNECT_BOOTSTRAP_SERVERS: "kafka-broker-1:9092,kafka-broker-2:9092,kafka-broker-3:9092"
+      CONNECT_KEY_CONVERTER_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      CONNECT_VALUE_CONVERTER_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      CONNECT_LISTENERS: http://kafka-connect:8083
+      CONNECT_REST_PORT: 8083
+      CONNECT_REST_ADVERTISED_HOST_NAME: kafka-connect
+      CONNECT_REST_ADVERTISED_PORT: 8083
+      CONNECT_GROUP_ID: connect-group-01
+      CONNECT_CONFIG_STORAGE_TOPIC: "_connect-configs"
+      CONNECT_OFFSET_STORAGE_TOPIC: "_connect-offsets"
+      CONNECT_STATUS_STORAGE_TOPIC: "_connect-status"
+      CONNECT_KEY_CONVERTER: "org.apache.kafka.connect.storage.StringConverter"
+      CONNECT_VALUE_CONVERTER: "io.confluent.connect.avro.AvroConverter"
+      CONNECT_INTERNAL_KEY_CONVERTER: "org.apache.kafka.connect.json.JsonConverter"
+      CONNECT_INTERNAL_VALUE_CONVERTER: "org.apache.kafka.connect.json.JsonConverter"
+      CONNECT_LOG4J_ROOT_LOGLEVEL: "INFO"
+      CONNECT_LOG4J_LOGGERS: "org.apache.kafka.connect.runtime.rest=WARN,org.reflections=ERROR"
+      CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: 3
+      CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: 3
+      CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: 3
+      CONNECT_OFFSET_FLUSH_INTERVAL_MS: 10000
+      CONNECT_OFFSET_FLUSH_TIMEOUT_MS: 60000
+      CONNECT_PLUGIN_PATH: '/usr/share/java,/data/connectors/,/usr/share/confluent-hub-components/'
+
+      # Connect Producer configs ## https://docs.confluent.io/platform/current/installation/configuration/producer-configs.html
+      CONNECT_PRODUCER_BATCH_SIZE: 16384 #32768
+      CONNECT_PRODUCER_LINGER_MS: 10
+      CONNECT_PRODUCER_MAX_REQUEST_SIZE: 1000012
+      CONNECT_PRODUCER_BUFFER_MEMORY: 33554432 #67108864
+      CONNECT_WORKER_SYNC_TIMEOUT_MS: 60000
+      CONNECT_WORKER_UNSYNC_BACKOFF_MS: 30000
+
+      # Connect Consumer configs ## https://docs.confluent.io/platform/current/installation/configuration/consumer-configs.html
+      CONNECT_CONSUMER_MAX_POLL_RECORDS: 200 # Default 500
+      CONNECT_CONSUMER_SESSION_TIMEOUT_MS: 30000
+      CONNECT_CONSUMER_HEARTBEAT_INTERVAL_MS: 10000
+      CONNECT_CONSUMER_MAX_PARTITION_FETCH_BYTES: 1000012 # 1048576
+      CONNECT_CONSUMER_MAX_POLL_INTERVAL_MS: 600000
+      CONNECT_CONSUMER_ENABLE_AUTO_COMMIT: "false"
+      # Default = true enable.auto.commit
+
+    volumes:
+      - ./data:/data/
+    command:
+      - /bin/bash
+      - -c
+      - |
+        mkdir -p /usr/share/java/kafka-connect-jdbc/
+        #echo "Downloading JDBC drivers". Примеры установки плагинов из confluent-hub: confluent-hub install --no-prompt confluentinc/kafka-connect-jdbc:10.7.4
+        sleep infinity &
+        /etc/confluent/docker/run
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "500k"
+        max-file: "5"
+
+  kafka-connect-ui:
+    image: landoop/kafka-connect-ui:0.9.7
+    restart: always
+    ports:
+      - '8000:8000'
+    container_name: kafka-connect-ui
+    environment:
+      CONNECT_URL: http://kafka-connect:8083;connect-testing1
+
+  postgres:
+    container_name: postgres_container
+    hostname: postgres_container
+    image: postgres:14.8-alpine3.18
+    environment:
+      POSTGRES_DB: "testing_DB"
+      POSTGRES_USER: "test_user"
+      POSTGRES_PASSWORD: "test_pwd"
+      PGDATA: "/var/lib/postgresql/data/pgdata"
+    volumes:
+      - ./db_init:/docker-entrypoint-initdb.d
+      - test_db-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+
+  pgadmin:
+    container_name: pgadmin_container
+    image: dpage/pgadmin4:8.11
+    environment:
+      PGADMIN_DEFAULT_EMAIL: "test_kafka-connect_bd@mail.ru"
+      PGADMIN_DEFAULT_PASSWORD: "default_pwd"
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+    volumes:
+      - pgadmin-data:/var/lib/pgadmin
+    ports:
+      - "5050:80"
+    restart: unless-stopped
+
+volumes:
+  test_db-data:
+  pgadmin-data:
